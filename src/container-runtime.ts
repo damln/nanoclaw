@@ -18,7 +18,7 @@ export const CONTAINER_HOST_GATEWAY = 'host.docker.internal';
  * Address the credential proxy binds to.
  * Docker Desktop (macOS): 127.0.0.1 — the VM routes host.docker.internal to loopback.
  * Docker (Linux): bind to the docker0 bridge IP so only containers can reach it,
- *   falling back to 0.0.0.0 if the interface isn't found.
+ *   falling back to 127.0.0.1 if the interface isn't found.
  */
 export const PROXY_BIND_HOST =
   process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
@@ -37,7 +37,7 @@ function detectProxyBindHost(): string {
     const ipv4 = docker0.find((a) => a.family === 'IPv4');
     if (ipv4) return ipv4.address;
   }
-  return '0.0.0.0';
+  return '127.0.0.1';
 }
 
 /** CLI args needed for the container to resolve the host gateway. */
