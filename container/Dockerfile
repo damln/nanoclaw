@@ -40,7 +40,7 @@ WORKDIR /app
 COPY agent-runner/package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Copy source code
 COPY agent-runner/ ./
