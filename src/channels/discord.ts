@@ -26,9 +26,11 @@ export interface DiscordChannelOpts {
 export class DiscordChannel implements Channel {
   name = 'discord';
 
+  private static TYPING_REFRESH_MS = 8000;
   private client: Client | null = null;
   private opts: DiscordChannelOpts;
   private botToken: string;
+  private typingIntervals = new Map<string, NodeJS.Timeout>();
 
   constructor(botToken: string, opts: DiscordChannelOpts) {
     this.botToken = botToken;
@@ -252,6 +254,10 @@ export class DiscordChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    for (const interval of this.typingIntervals.values()) {
+      clearInterval(interval);
+    }
+    this.typingIntervals.clear();
     if (this.client) {
       this.client.destroy();
       this.client = null;
@@ -260,16 +266,35 @@ export class DiscordChannel implements Channel {
   }
 
   async setTyping(jid: string, isTyping: boolean): Promise<void> {
-    if (!this.client || !isTyping) return;
-    try {
-      const channelId = jid.replace(/^dc:/, '');
-      const channel = await this.client.channels.fetch(channelId);
-      if (channel && 'sendTyping' in channel) {
-        await (channel as TextChannel).sendTyping();
-      }
-    } catch (err) {
-      logger.debug({ jid, err }, 'Failed to send Discord typing indicator');
+    if (!this.client) return;
+
+    const existing = this.typingIntervals.get(jid);
+    if (existing) {
+      clearInterval(existing);
+      this.typingIntervals.delete(jid);
     }
+
+    if (!isTyping) return;
+
+    const sendTyping = async () => {
+      try {
+        const channelId = jid.replace(/^dc:/, '');
+        const channel = await this.client!.channels.fetch(channelId);
+        if (channel && 'sendTyping' in channel) {
+          await (channel as TextChannel).sendTyping();
+        }
+      } catch (err) {
+        logger.debug({ jid, err }, 'Failed to send Discord typing indicator');
+      }
+    };
+
+    await sendTyping();
+    this.typingIntervals.set(
+      jid,
+      setInterval(() => {
+        sendTyping();
+      }, DiscordChannel.TYPING_REFRESH_MS),
+    );
   }
 }
 

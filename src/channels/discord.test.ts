@@ -562,11 +562,9 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
-      const mockFetch = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({
-          text: () => Promise.resolve('# Hello World\nSome content'),
-        } as Response);
+      const mockFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        text: () => Promise.resolve('# Hello World\nSome content'),
+      } as Response);
 
       const attachments = new Map([
         [
@@ -663,11 +661,9 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
-      const mockFetch = vi
-        .spyOn(globalThis, 'fetch')
-        .mockResolvedValueOnce({
-          text: () => Promise.resolve('hello world'),
-        } as Response);
+      const mockFetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        text: () => Promise.resolve('hello world'),
+      } as Response);
 
       const attachments = new Map([
         ['att1', { name: 'a.png', contentType: 'image/png' }],
@@ -821,7 +817,7 @@ describe('DiscordChannel', () => {
   // --- setTyping ---
 
   describe('setTyping', () => {
-    it('sends typing indicator when isTyping is true', async () => {
+    it('sends typing indicator immediately when isTyping is true', async () => {
       const opts = createTestOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
@@ -834,18 +830,109 @@ describe('DiscordChannel', () => {
 
       await channel.setTyping('dc:1234567890123456', true);
 
-      expect(mockChannel.sendTyping).toHaveBeenCalled();
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(1);
+
+      // Cleanup
+      await channel.setTyping('dc:1234567890123456', false);
     });
 
-    it('does nothing when isTyping is false', async () => {
+    it('refreshes typing every 8 seconds', async () => {
+      vi.useFakeTimers();
       const opts = createTestOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
+      const mockChannel = {
+        send: vi.fn(),
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+      };
+      currentClient().channels.fetch.mockResolvedValue(mockChannel);
+
+      await channel.setTyping('dc:1234567890123456', true);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(1);
+
+      // Advance 8s — should fire again
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(2);
+
+      // Advance another 8s — should fire again
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(3);
+
+      // Cleanup
+      await channel.setTyping('dc:1234567890123456', false);
+      vi.useRealTimers();
+    });
+
+    it('stops refreshing when isTyping is false', async () => {
+      vi.useFakeTimers();
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const mockChannel = {
+        send: vi.fn(),
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+      };
+      currentClient().channels.fetch.mockResolvedValue(mockChannel);
+
+      await channel.setTyping('dc:1234567890123456', true);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(1);
+
       await channel.setTyping('dc:1234567890123456', false);
 
-      // channels.fetch should NOT be called
-      expect(currentClient().channels.fetch).not.toHaveBeenCalled();
+      // Advance time — should NOT fire again
+      await vi.advanceTimersByTimeAsync(16000);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
+    });
+
+    it('replaces interval when setTyping(true) called twice', async () => {
+      vi.useFakeTimers();
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const mockChannel = {
+        send: vi.fn(),
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+      };
+      currentClient().channels.fetch.mockResolvedValue(mockChannel);
+
+      await channel.setTyping('dc:1234567890123456', true);
+      await channel.setTyping('dc:1234567890123456', true);
+      // 2 immediate calls (one per setTyping(true))
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(2);
+
+      // After 8s only one interval should fire (not two)
+      await vi.advanceTimersByTimeAsync(8000);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(3);
+
+      await channel.setTyping('dc:1234567890123456', false);
+      vi.useRealTimers();
+    });
+
+    it('clears all intervals on disconnect', async () => {
+      vi.useFakeTimers();
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const mockChannel = {
+        send: vi.fn(),
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+      };
+      currentClient().channels.fetch.mockResolvedValue(mockChannel);
+
+      await channel.setTyping('dc:1234567890123456', true);
+      await channel.disconnect();
+
+      // Advance time — interval should be cleared
+      await vi.advanceTimersByTimeAsync(16000);
+      expect(mockChannel.sendTyping).toHaveBeenCalledTimes(1);
+
+      vi.useRealTimers();
     });
 
     it('does nothing when client is not initialized', async () => {
