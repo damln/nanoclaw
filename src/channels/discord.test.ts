@@ -534,7 +534,7 @@ describe('DiscordChannel', () => {
       );
     });
 
-    it('stores file attachment with placeholder', async () => {
+    it('stores binary file attachment with placeholder', async () => {
       const opts = createTestOpts();
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
@@ -555,6 +555,84 @@ describe('DiscordChannel', () => {
           content: '[File: report.pdf]',
         }),
       );
+    });
+
+    it('downloads and inlines text file content', async () => {
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const mockFetch = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({
+          text: () => Promise.resolve('# Hello World\nSome content'),
+        } as Response);
+
+      const attachments = new Map([
+        [
+          'att1',
+          {
+            name: 'README.md',
+            contentType: 'text/markdown',
+            url: 'https://cdn.discordapp.com/attachments/123/README.md',
+          },
+        ],
+      ]);
+      const msg = createMessage({
+        content: 'check this file',
+        attachments,
+        guildName: 'Server',
+      });
+      await triggerMessage(msg);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://cdn.discordapp.com/attachments/123/README.md',
+      );
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:1234567890123456',
+        expect.objectContaining({
+          content:
+            'check this file\n[File: README.md]\n```\n# Hello World\nSome content\n```',
+        }),
+      );
+
+      mockFetch.mockRestore();
+    });
+
+    it('falls back to placeholder when text download fails', async () => {
+      const opts = createTestOpts();
+      const channel = new DiscordChannel('test-token', opts);
+      await channel.connect();
+
+      const mockFetch = vi
+        .spyOn(globalThis, 'fetch')
+        .mockRejectedValueOnce(new Error('Network error'));
+
+      const attachments = new Map([
+        [
+          'att1',
+          {
+            name: 'data.json',
+            contentType: 'application/json',
+            url: 'https://cdn.discordapp.com/attachments/123/data.json',
+          },
+        ],
+      ]);
+      const msg = createMessage({
+        content: '',
+        attachments,
+        guildName: 'Server',
+      });
+      await triggerMessage(msg);
+
+      expect(opts.onMessage).toHaveBeenCalledWith(
+        'dc:1234567890123456',
+        expect.objectContaining({
+          content: '[File: data.json]',
+        }),
+      );
+
+      mockFetch.mockRestore();
     });
 
     it('includes text content with attachments', async () => {
@@ -585,9 +663,22 @@ describe('DiscordChannel', () => {
       const channel = new DiscordChannel('test-token', opts);
       await channel.connect();
 
+      const mockFetch = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce({
+          text: () => Promise.resolve('hello world'),
+        } as Response);
+
       const attachments = new Map([
         ['att1', { name: 'a.png', contentType: 'image/png' }],
-        ['att2', { name: 'b.txt', contentType: 'text/plain' }],
+        [
+          'att2',
+          {
+            name: 'b.txt',
+            contentType: 'text/plain',
+            url: 'https://cdn.discordapp.com/attachments/123/b.txt',
+          },
+        ],
       ]);
       const msg = createMessage({
         content: '',
@@ -599,9 +690,11 @@ describe('DiscordChannel', () => {
       expect(opts.onMessage).toHaveBeenCalledWith(
         'dc:1234567890123456',
         expect.objectContaining({
-          content: '[Image: a.png]\n[File: b.txt]',
+          content: '[Image: a.png]\n[File: b.txt]\n```\nhello world\n```',
         }),
       );
+
+      mockFetch.mockRestore();
     });
   });
 

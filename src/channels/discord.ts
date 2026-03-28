@@ -92,26 +92,47 @@ export class DiscordChannel implements Channel {
         }
       }
 
-      // Handle attachments — store placeholders so the agent knows something was sent
+      // Handle attachments — download text files, placeholder for binary
       if (message.attachments.size > 0) {
-        const attachmentDescriptions = [...message.attachments.values()].map(
-          (att) => {
-            const contentType = att.contentType || '';
-            if (contentType.startsWith('image/')) {
-              return `[Image: ${att.name || 'image'}]`;
-            } else if (contentType.startsWith('video/')) {
-              return `[Video: ${att.name || 'video'}]`;
-            } else if (contentType.startsWith('audio/')) {
-              return `[Audio: ${att.name || 'audio'}]`;
-            } else {
-              return `[File: ${att.name || 'file'}]`;
+        const attachmentParts: string[] = [];
+        for (const att of message.attachments.values()) {
+          const contentType = att.contentType || '';
+          if (contentType.startsWith('image/')) {
+            attachmentParts.push(`[Image: ${att.name || 'image'}]`);
+          } else if (contentType.startsWith('video/')) {
+            attachmentParts.push(`[Video: ${att.name || 'video'}]`);
+          } else if (contentType.startsWith('audio/')) {
+            attachmentParts.push(`[Audio: ${att.name || 'audio'}]`);
+          } else if (
+            contentType.startsWith('text/') ||
+            contentType.includes('json') ||
+            contentType.includes('xml') ||
+            contentType.includes('yaml') ||
+            contentType.includes('javascript') ||
+            contentType.includes('markdown')
+          ) {
+            // Download text-based files and inline their content
+            try {
+              const response = await fetch(att.url);
+              const text = await response.text();
+              attachmentParts.push(
+                `[File: ${att.name}]\n\`\`\`\n${text}\n\`\`\``,
+              );
+            } catch (err) {
+              logger.warn(
+                { name: att.name, err },
+                'Failed to download text attachment',
+              );
+              attachmentParts.push(`[File: ${att.name || 'file'}]`);
             }
-          },
-        );
+          } else {
+            attachmentParts.push(`[File: ${att.name || 'file'}]`);
+          }
+        }
         if (content) {
-          content = `${content}\n${attachmentDescriptions.join('\n')}`;
+          content = `${content}\n${attachmentParts.join('\n')}`;
         } else {
-          content = attachmentDescriptions.join('\n');
+          content = attachmentParts.join('\n');
         }
       }
 
